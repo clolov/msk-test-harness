@@ -120,12 +120,31 @@ public class KafkaManager {
             var adminClient = AdminClient.create(iamPropsAdminClient());
             try {
                 adminClient.deleteTopics(tt).all().get();
+                // After successful deletion, recreate the topics
+                recreateTopics(tt);
             } catch (Exception ex) {
                 logger.warn("Failed to delete topic ".concat(tt.toString()), ex);
             } finally {
                 adminClient.close(Duration.ofSeconds(5));
             }
         });
+    }
+
+    private void recreateTopics(List<String> deletedTopics) {
+        logger.info("Recreating {} deleted topics", deletedTopics.size());
+        var adminClient = AdminClient.create(iamPropsAdminClient());
+        try {
+            for (String topicName : deletedTopics) {
+                createTopic(false, topicName, adminClient);
+            }
+            // Update the testTopics list with any recreated topics
+            this.testTopics = this.testTopics.stream()
+                .filter(topic -> !deletedTopics.contains(topic))
+                .collect(Collectors.toList());
+            this.testTopics.addAll(deletedTopics);
+        } finally {
+            adminClient.close(Duration.ofSeconds(5));
+        }
     }
 
     private String createTopic(boolean runtimeOnFailure, String overrideName, AdminClient adminClient) {

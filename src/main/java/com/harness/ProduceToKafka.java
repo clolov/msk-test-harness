@@ -49,6 +49,9 @@ public class ProduceToKafka {
     @Autowired
     private IAMManager iamManager;
 
+    @Autowired
+    private BackoffManager backoffManager;
+
     private final Logger logger = LoggerFactory.getLogger(getClass());
     private DescriptiveStatistics stats = new DescriptiveStatistics();
 
@@ -125,7 +128,7 @@ public class ProduceToKafka {
             this.ses = Executors.newScheduledThreadPool(1);
             ses.scheduleAtFixedRate(this::stats, 0, STATS_RATE_SECONDS, TimeUnit.SECONDS);
             if (connectionPerTopic) {
-                log.info("Using connection per topic, topics={}", testTopics.size());
+                logger.info("Using connection per topic, topics={}", testTopics.size());
                 this.topicToProducer = this.testTopics.stream()
                         .collect(Collectors.toMap(Function.identity(),
                                 topic -> new KafkaProducer<String, String>(this.props)));
@@ -234,9 +237,10 @@ public class ProduceToKafka {
         producer.send(record, (metadata, ex) -> {
             if (ex != null) {
                 logger.error("Unable to produce to ".concat(topicName), ex);
-                if (ex instanceof AuthorizationException) {
-                    logger.warn("Stopping produce due to authorisation exception: ".concat(topicName), ex);
-                    stopProducer();
+                if (ex instanceof AuthorizationException || !ex.getCause().getMessage().contains("retriable")) {
+                    // Handle unretriable errors with backoff
+                    int backoffSeconds = backoffManager.handleError(topicName);
+                    Utils.sleepQuietly(backoffSeconds * 1000);
                 }
             } else {
                 logger.debug("Succesfull produce to topic={} offset={} partition={}", metadata.topic(),

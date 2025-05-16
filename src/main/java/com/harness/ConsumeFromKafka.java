@@ -48,6 +48,9 @@ public class ConsumeFromKafka {
     @Autowired
     private IAMManager iamManager;
 
+    @Autowired
+    private BackoffManager backoffManager;
+
     @Value("${use.dynamic.roles}")
     private boolean useDynamicRoles;
 
@@ -212,10 +215,22 @@ public class ConsumeFromKafka {
                 }
                 stats.addValue(System.currentTimeMillis() - startTime);
             } catch (GroupAuthorizationException gex) {
-                logger.error("Authrorisation issues with consume, terminating consumer.", gex);
-                break;
+                logger.error("Authorization issues with consume.", gex);
+                // Handle unretriable authorization error with backoff
+                for (String topic : testTopics) {
+                    int backoffSeconds = backoffManager.handleError(topic);
+                    Utils.sleepQuietly(backoffSeconds * 1000);
+                }
             } catch (Exception ex) {
-                logger.error("Error during consume.", ex);
+                if (!ex.getMessage().contains("retriable")) {
+                    // Handle other unretriable errors with backoff
+                    for (String topic : testTopics) {
+                        int backoffSeconds = backoffManager.handleError(topic);
+                        Utils.sleepQuietly(backoffSeconds * 1000);
+                    }
+                } else {
+                    logger.error("Error during consume.", ex);
+                }
             }
         }
         if (useShare()) {
