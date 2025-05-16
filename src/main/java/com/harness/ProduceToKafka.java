@@ -237,7 +237,12 @@ public class ProduceToKafka {
         producer.send(record, (metadata, ex) -> {
             if (ex != null) {
                 logger.error("Unable to produce to ".concat(topicName), ex);
-                if (ex instanceof AuthorizationException || !ex.getCause().getMessage().contains("retriable")) {
+                // Check if this is an unretriable error
+                boolean isUnretriable = ex instanceof AuthorizationException || 
+                    (ex.getCause() != null && !ex.getCause().getMessage().contains("retriable")) ||
+                    (ex.getMessage() != null && !ex.getMessage().contains("retriable"));
+                
+                if (isUnretriable) {
                     // Handle unretriable errors with backoff
                     int backoffSeconds = backoffManager.handleError(topicName);
                     Utils.sleepQuietly(backoffSeconds * 1000);

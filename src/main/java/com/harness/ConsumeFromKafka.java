@@ -222,8 +222,12 @@ public class ConsumeFromKafka {
                     Utils.sleepQuietly(backoffSeconds * 1000);
                 }
             } catch (Exception ex) {
-                if (!ex.getMessage().contains("retriable")) {
-                    // Handle other unretriable errors with backoff
+                // Check if this is an unretriable error
+                boolean isUnretriable = (ex.getCause() != null && !ex.getCause().getMessage().contains("retriable")) ||
+                    (ex.getMessage() != null && !ex.getMessage().contains("retriable"));
+                
+                if (isUnretriable) {
+                    // Handle unretriable errors with backoff
                     for (String topic : testTopics) {
                         int backoffSeconds = backoffManager.handleError(topic);
                         Utils.sleepQuietly(backoffSeconds * 1000);
